@@ -1,8 +1,10 @@
 package com.example.pemutarmusik.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -12,7 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -36,45 +38,40 @@ fun MiniPlayer(
     if (song == null) return
 
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpenFullPlayer() },
         color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 4.dp
+        tonalElevation = 8.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures { _, dragAmount ->
-                        if (dragAmount < -80) onNext()
-                        else if (dragAmount > 80) onPrev()
+                .draggable(
+                    orientation = Orientation.Horizontal,
+                    state = rememberDraggableState { },
+                    onDragStopped = { velocity ->
+                        if (velocity < -500) onNext()
+                        else if (velocity > 500) onPrev()
                     }
-                }
-                .pointerInput(Unit) {
-                    detectVerticalDragGestures { _, dragAmount ->
-                        if (dragAmount < -40) onOpenFullPlayer()
-                    }
-                }
+                )
                 .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Album art
-            Box(
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(song.albumArtUri)
+                    .crossfade(false)
+                    .build(),
+                contentDescription = null,
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surface),
-                contentAlignment = Alignment.Center
-            ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(song.albumArtUri)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            }
+                contentScale = ContentScale.Crop,
+                placeholder = ColorPainter(MaterialTheme.colorScheme.surface),
+                error = ColorPainter(MaterialTheme.colorScheme.surface)
+            )
 
             Spacer(modifier = Modifier.width(10.dp))
 
@@ -83,7 +80,7 @@ fun MiniPlayer(
                     text = song.title,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -96,24 +93,16 @@ fun MiniPlayer(
                 )
             }
 
-            IconButton(onClick = onPrev, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Default.SkipPrevious, "Previous",
-                    tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
-            }
-            IconButton(onClick = onPlayPause, modifier = Modifier.size(32.dp)) {
+            IconButton(onClick = onPlayPause, modifier = Modifier.size(44.dp)) {
                 Icon(
                     if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    if (isPlaying) "Pause" else "Play",
-                    tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(22.dp)
+                    null,
+                    tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(28.dp)
                 )
             }
-            IconButton(onClick = onNext, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Default.SkipNext, "Next",
-                    tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
-            }
-            IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Default.Close, "Close",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+            IconButton(onClick = onClose, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Default.Close, null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
             }
         }
     }

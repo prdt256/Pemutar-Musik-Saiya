@@ -23,7 +23,8 @@ fun loadAllSongs(
         MediaStore.Audio.Media.DURATION,
         MediaStore.Audio.Media.IS_MUSIC,
         MediaStore.Audio.Media.DATE_ADDED,
-        MediaStore.Audio.Media.ALBUM_ID
+        MediaStore.Audio.Media.ALBUM_ID,
+        MediaStore.Audio.Media.ALBUM // Ambil nama album juga
     )
     @Suppress("DEPRECATION")
     projection.add(MediaStore.Audio.Media.DATA)
@@ -52,6 +53,10 @@ fun loadAllSongs(
         while (cursor.moveToNext()) {
             val id = cursor.getLong(idCol)
             val albumId = cursor.getLong(albumIdCol)
+            
+            // Logic unik: Jika albumId adalah 0 atau -1, 
+            // MediaStore mungkin salah grouping.
+            
             val folderPath = if (dataCol >= 0) {
                 (cursor.getString(dataCol) ?: "").substringBeforeLast("/", "")
             } else ""
@@ -63,7 +68,7 @@ fun loadAllSongs(
                 durationMs = cursor.getLong(durCol),
                 uri = ContentUris.withAppendedId(collection, id),
                 albumId = albumId,
-                albumArtUri = ContentUris.withAppendedId(albumArtBaseUri, albumId),
+                albumArtUri = if (albumId > 0) ContentUris.withAppendedId(albumArtBaseUri, albumId) else null,
                 folderPath = folderPath,
                 dateAdded = cursor.getLong(dateCol)
             ))

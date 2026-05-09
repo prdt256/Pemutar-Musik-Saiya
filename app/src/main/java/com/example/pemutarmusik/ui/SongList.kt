@@ -13,16 +13,19 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImage
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.pemutarmusik.data.MediaSong
 
@@ -45,6 +48,20 @@ fun SongList(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SongItem(song: MediaSong, isPlaying: Boolean, onClick: () -> Unit) {
+    val context = LocalContext.current
+    
+    // KUNCI MATI: Pakai song.id sebagai key agar Coil gak tertukar gambarnya
+    val imageRequest = remember(song.id) {
+        ImageRequest.Builder(context)
+            .data(song.albumArtUri)
+            .memoryCacheKey("song_art_${song.id}")
+            .diskCacheKey("song_art_${song.id}")
+            .crossfade(false) // Matikan biar enteng banget pas scroll
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .build()
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -52,44 +69,33 @@ private fun SongItem(song: MediaSong, isPlaying: Boolean, onClick: () -> Unit) {
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Album art thumbnail
-        Box(
+        AsyncImage(
+            model = imageRequest,
+            contentDescription = null,
             modifier = Modifier
-                .size(46.dp)
-                .clip(RoundedCornerShape(6.dp))
+                .size(50.dp)
+                .clip(RoundedCornerShape(10.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center
-        ) {
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(song.albumArtUri)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                error = {
-                    Icon(Icons.Default.MusicNote, null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(22.dp))
-                }
-            )
-        }
+            contentScale = ContentScale.Crop,
+            placeholder = ColorPainter(MaterialTheme.colorScheme.surfaceVariant),
+            error = ColorPainter(MaterialTheme.colorScheme.surfaceVariant)
+        )
 
-        Spacer(modifier = Modifier.width(10.dp))
+        Spacer(modifier = Modifier.width(12.dp))
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = song.title,
                 color = if (isPlaying) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
-                fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Normal,
+                fontSize = 15.sp,
+                fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Medium,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = if (isPlaying) Modifier.basicMarquee() else Modifier
             )
             Text(
-                text = "${song.artist} · ${song.durationText}",
+                text = "${song.artist} • ${song.durationText}",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
                 maxLines = 1,
@@ -98,9 +104,11 @@ private fun SongItem(song: MediaSong, isPlaying: Boolean, onClick: () -> Unit) {
         }
 
         IconButton(onClick = { }, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Default.MoreVert, "Menu",
+            Icon(
+                Icons.Default.MoreVert, "Menu",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp))
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }

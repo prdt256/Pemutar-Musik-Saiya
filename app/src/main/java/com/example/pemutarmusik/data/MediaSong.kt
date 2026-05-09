@@ -16,9 +16,15 @@ data class MediaSong(
 ) {
     val durationText: String
         get() {
-            val m = TimeUnit.MILLISECONDS.toMinutes(durationMs)
-            val s = TimeUnit.MILLISECONDS.toSeconds(durationMs) % 60
-            return "%d:%02d".format(m, s)
+            val hours = TimeUnit.MILLISECONDS.toHours(durationMs)
+            val minutes = TimeUnit.MILLISECONDS.toMinutes(durationMs) % 60
+            val seconds = TimeUnit.MILLISECONDS.toSeconds(durationMs) % 60
+            
+            return if (hours > 0) {
+                "%d:%02d:%02d".format(hours, minutes, seconds)
+            } else {
+                "%d:%02d".format(minutes, seconds)
+            }
         }
 }
 

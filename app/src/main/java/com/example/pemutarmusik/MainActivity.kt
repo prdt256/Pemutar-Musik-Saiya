@@ -12,6 +12,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Close
@@ -22,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -31,6 +33,7 @@ import com.example.pemutarmusik.data.SortOrder
 import com.example.pemutarmusik.player.MusicViewModel
 import com.example.pemutarmusik.ui.*
 import com.example.pemutarmusik.ui.theme.PemutarMusikTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,28 +46,27 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MusicApp(vm: MusicViewModel = viewModel()) {
     val context = LocalContext.current
-    var hasPermission by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    
+    var hasPermission by remember { 
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, audioPermission()) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    
     var sortBy by remember { mutableStateOf(SortBy.TITLE) }
     var sortOrder by remember { mutableStateOf(SortOrder.ASC) }
-    var showFullPlayer by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var libraryTab by remember { mutableIntStateOf(0) }
     var showSearch by remember { mutableStateOf(false) }
 
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var isSheetOpen by remember { mutableStateOf(false) }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        hasPermission = granted
-    }
+    ) { granted -> hasPermission = granted }
 
-    // Cek permission sekali saat awal — langsung set tanpa delay
-    LaunchedEffect(Unit) {
-        hasPermission = ContextCompat.checkSelfPermission(
-            context, audioPermission()
-        ) == PackageManager.PERMISSION_GRANTED
-    }
-
-    // Load lagu
     LaunchedEffect(hasPermission, sortBy, sortOrder) {
         if (hasPermission) vm.loadSongs(context, sortBy, sortOrder)
     }
@@ -73,35 +75,48 @@ private fun MusicApp(vm: MusicViewModel = viewModel()) {
         vm.songs.groupBy { it.folderPath }.mapValues { it.value.size }
     }
 
-    // Full Player
-    if (showFullPlayer) {
-        FullPlayer(
-            song = vm.currentSong, isPlaying = vm.isPlaying,
-            currentPosition = vm.currentPosition, duration = vm.duration,
-            shuffleEnabled = vm.shuffleEnabled, repeatMode = vm.repeatMode,
-            playbackSpeed = vm.playbackSpeed, volume = vm.playerVolume,
-            timerActive = vm.timerActive, timerRemainingMs = vm.timerRemainingMs,
-            stopAfterCurrent = vm.stopAfterCurrent,
-            onClose = { showFullPlayer = false },
-            onPlayPause = { vm.togglePlay() },
-            onNext = { vm.playNext(context) }, onPrev = { vm.playPrevious(context) },
-            onSeek = { vm.seekTo(it) },
-            onToggleShuffle = { vm.toggleShuffle() }, onToggleRepeat = { vm.toggleRepeat() },
-            onSetSpeed = { vm.setSpeed(it) }, onSetVolume = { vm.updateVolume(it) },
-            onStartTimer = { vm.startTimer(it) }, onStopAfterCurrent = { vm.setStopAfterCurrent() },
-            onCancelTimer = { vm.cancelTimer() }
-        )
+    // Modal Bottom Sheet - Full Player with Animation & Swipe-to-dismiss
+    if (isSheetOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { isSheetOpen = false },
+            sheetState = sheetState,
+            dragHandle = null,
+            containerColor = MaterialTheme.colorScheme.background,
+            scrimColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp) // Tambah rounded biar cakep
+        ) {
+            FullPlayerContent(
+                song = vm.currentSong, isPlaying = vm.isPlaying,
+                currentPosition = vm.currentPosition, duration = vm.duration,
+                shuffleEnabled = vm.shuffleEnabled, repeatMode = vm.repeatMode,
+                playbackSpeed = vm.playbackSpeed, volume = vm.playerVolume,
+                timerActive = vm.timerActive, timerRemainingMs = vm.timerRemainingMs,
+                stopAfterCurrent = vm.stopAfterCurrent,
+                onClose = { 
+                    scope.launch { sheetState.hide() }.invokeOnCompletion { 
+                        isSheetOpen = false 
+                    }
+                },
+                onPlayPause = { vm.togglePlay() },
+                onNext = { vm.playNext(context) }, onPrev = { vm.playPrevious(context) },
+                onSeek = { vm.seekTo(it) },
+                onToggleShuffle = { vm.toggleShuffle() }, onToggleRepeat = { vm.toggleRepeat() },
+                onSetSpeed = { vm.setSpeed(it) }, onSetVolume = { vm.updateVolume(it) },
+                onStartTimer = { vm.startTimer(it) }, onStopAfterCurrent = { vm.setStopAfterCurrent() },
+                onCancelTimer = { vm.cancelTimer() }
+            )
+        }
     }
 
     Scaffold(
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("Pemutar Musik") },
+                    title = { Text("Pemutar Musik", fontWeight = FontWeight.Bold) },
                     actions = {
                         IconButton(onClick = {
                             showSearch = !showSearch
-                            if (!showSearch) vm.searchQuery = "" // Clear saat tutup
+                            if (!showSearch) vm.searchQuery = ""
                         }) {
                             Icon(
                                 if (showSearch) Icons.Default.Close else Icons.Default.Search,
@@ -123,13 +138,6 @@ private fun MusicApp(vm: MusicViewModel = viewModel()) {
                         placeholder = { Text("Cari lagu atau artis...") },
                         singleLine = true,
                         leadingIcon = { Icon(Icons.Default.Search, null) },
-                        trailingIcon = {
-                            if (vm.searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { vm.searchQuery = "" }) {
-                                    Icon(Icons.Default.Close, "Hapus")
-                                }
-                            }
-                        },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -154,7 +162,7 @@ private fun MusicApp(vm: MusicViewModel = viewModel()) {
             Column {
                 MiniPlayer(
                     song = vm.currentSong, isPlaying = vm.isPlaying,
-                    onOpenFullPlayer = { showFullPlayer = true },
+                    onOpenFullPlayer = { isSheetOpen = true },
                     onPrev = { vm.playPrevious(context) },
                     onPlayPause = { vm.togglePlay() },
                     onNext = { vm.playNext(context) },
