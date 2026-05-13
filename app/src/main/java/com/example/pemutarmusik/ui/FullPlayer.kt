@@ -97,19 +97,12 @@ fun FullPlayerContent(
         Spacer(Modifier.height(16.dp))
 
         // Album Art besar
-        AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
-                .data(song?.albumArtUri)
-                .crossfade(true)
-                .build(),
-            contentDescription = null,
+        SongThumbnail(
+            song = song,
             modifier = Modifier
                 .fillMaxWidth(0.9f)
                 .aspectRatio(1f)
                 .clip(RoundedCornerShape(24.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentScale = ContentScale.Crop,
-            placeholder = ColorPainter(MaterialTheme.colorScheme.surfaceVariant)
         )
 
         Spacer(Modifier.height(24.dp))
