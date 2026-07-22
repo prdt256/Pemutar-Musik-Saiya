@@ -28,6 +28,6 @@ data class MediaSong(
         }
 }
 
-enum class SortBy { TITLE, DURATION, DATE_ADDED }
+enum class SortBy { TITLE, ARTIST, DURATION, DATE_ADDED }
 enum class SortOrder { ASC, DESC }
 enum class RepeatMode { OFF, ONE, ALL }

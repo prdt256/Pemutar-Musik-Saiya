@@ -1,6 +1,6 @@
 package com.example.pemutarmusik.ui
 
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,31 +33,28 @@ fun MiniPlayer(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            // Gabungan Tap dan Drag buat animasi swipe + klik biar gak error
-            .pointerInput(Unit) {
+            // Tap untuk buka Full Player
+            .pointerInput("tap") {
                 detectTapGestures(onTap = { onOpenFullPlayer() })
             }
-            .pointerInput(Unit) {
+            // Swipe Kiri/Kanan untuk ganti lagu; swipe vertikal dibiarkan pass-through
+            // ke BottomSheetScaffold (jadi dia yang handle animasi expand/collapse)
+            .pointerInput("horizontal_drag") {
                 var dragX = 0f
-                var dragY = 0f
-                detectDragGestures(
-                    onDrag = { change, dragAmount ->
+                detectHorizontalDragGestures(
+                    onDragStart = { dragX = 0f },
+                    onHorizontalDrag = { change, dragAmount ->
                         change.consume()
-                        dragX += dragAmount.x
-                        dragY += dragAmount.y
+                        dragX += dragAmount
                     },
                     onDragEnd = {
-                        if (kotlin.math.abs(dragX) > kotlin.math.abs(dragY)) {
-                            // Swipe horizontal (Kiri/Kanan ganti lagu)
-                            if (dragX < -50) onNext()
-                            else if (dragX > 50) onPrev()
-                        } else {
-                            // Swipe vertikal (Ke atas untuk full player)
-                            if (dragY < -30) onOpenFullPlayer()
+                        when {
+                            dragX < -60f -> onNext()
+                            dragX > 60f  -> onPrev()
                         }
                         dragX = 0f
-                        dragY = 0f
-                    }
+                    },
+                    onDragCancel = { dragX = 0f }
                 )
             },
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -96,9 +93,9 @@ fun MiniPlayer(
                 )
             }
 
-            // Tombol Previous & Next kembali hadir!
             IconButton(onClick = onPrev, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.SkipPrevious, "Previous", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp))
+                Icon(Icons.Default.SkipPrevious, "Previous",
+                    tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp))
             }
             IconButton(onClick = onPlayPause, modifier = Modifier.size(40.dp)) {
                 Icon(
@@ -108,7 +105,12 @@ fun MiniPlayer(
                 )
             }
             IconButton(onClick = onNext, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.SkipNext, "Next", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp))
+                Icon(Icons.Default.SkipNext, "Next",
+                    tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp))
+            }
+            IconButton(onClick = onClose, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Default.Close, "Tutup",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
             }
         }
     }

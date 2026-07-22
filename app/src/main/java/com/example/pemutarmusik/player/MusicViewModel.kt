@@ -2,6 +2,7 @@ package com.example.pemutarmusik.player
 
 import android.app.Application
 import android.content.Context
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.PlaybackParams
 import androidx.compose.runtime.*
@@ -13,13 +14,17 @@ import com.example.pemutarmusik.data.RepeatMode
 import com.example.pemutarmusik.data.SortBy
 import com.example.pemutarmusik.data.SortOrder
 import com.example.pemutarmusik.loadAllSongs
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs = PrefsManager(application)
+    private val audioManager = application.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     var songs by mutableStateOf<List<MediaSong>>(emptyList())
     var currentSong by mutableStateOf<MediaSong?>(null)
@@ -34,9 +39,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     var allFolders by mutableStateOf<List<String>>(emptyList())
     var excludedFolders = mutableStateListOf<String>()
 
-    // Playback speed & volume
+    // Playback speed & volume (volume disinkronkan dari sistem AudioManager)
     var playbackSpeed by mutableFloatStateOf(1.0f)
-    var playerVolume by mutableFloatStateOf(1.0f)
+    var playerVolume by mutableFloatStateOf(
+        audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() /
+        audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
+    )
 
     // Sleep timer
     var timerActive by mutableStateOf(false)
@@ -70,7 +78,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var mediaPlayer: MediaPlayer? = null
     private var songHistory = mutableStateListOf<MediaSong>()
 
-    private val currentIndex: Int
+    val currentIndex: Int
         get() = currentSong?.let { s -> filteredSongs.indexOfFirst { it.id == s.id } } ?: -1
 
     init {
@@ -91,8 +99,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadSongs(context: Context, sortBy: SortBy, sortOrder: SortOrder) {
-        songs = loadAllSongs(context.contentResolver, sortBy, sortOrder)
-        allFolders = songs.map { it.folderPath }.distinct().sorted()
+        viewModelScope.launch(Dispatchers.IO) {
+            val loadedSongs = loadAllSongs(context.contentResolver, sortBy, sortOrder)
+            val folders = loadedSongs.map { it.folderPath }.distinct().sorted()
+            withContext(Dispatchers.Main) {
+                songs = loadedSongs
+                allFolders = folders
+            }
+        }
     }
 
     fun toggleFolder(folderPath: String) {
@@ -116,7 +130,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             if (playbackSpeed != 1.0f) {
                 playbackParams = PlaybackParams().setSpeed(playbackSpeed)
             }
-            setVolume(playerVolume, playerVolume)
+            // Volume dikontrol oleh AudioManager (sistem HP), bukan MediaPlayer internal
             start()
         }
         isPlaying = mediaPlayer != null
@@ -205,7 +219,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateVolume(vol: Float) {
         playerVolume = vol
-        mediaPlayer?.setVolume(vol, vol)
+        // Atur volume stream media sistem Android secara real-time
+        val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        audioManager.setStreamVolume(
+            AudioManager.STREAM_MUSIC,
+            (vol * maxVol).roundToInt().coerceIn(0, maxVol),
+            0 // tanpa UI indicator dari sistem
+        )
     }
 
     // Sleep timer

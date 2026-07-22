@@ -1,33 +1,37 @@
 package com.example.pemutarmusik.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.painter.ColorPainter
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
+import androidx.compose.ui.util.lerp
 import com.example.pemutarmusik.data.MediaSong
 import com.example.pemutarmusik.data.RepeatMode
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlin.math.abs
 
 /**
- * Konten Full Player. Sekarang tidak lagi menggunakan Dialog agar bisa 
- * dianimasikan dengan ModalBottomSheet.
+ * Konten Full Player dengan HorizontalPager untuk swipe album art + peek card prev/next.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FullPlayerContent(
     song: MediaSong?,
@@ -41,6 +45,11 @@ fun FullPlayerContent(
     timerActive: Boolean,
     timerRemainingMs: Long,
     stopAfterCurrent: Boolean,
+    // --- Param baru untuk pager ---
+    songs: List<MediaSong> = emptyList(),
+    currentSongIndex: Int = -1,
+    onSongSelected: (MediaSong) -> Unit = {},
+    // --- End param baru ---
     onClose: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
@@ -96,14 +105,111 @@ fun FullPlayerContent(
 
         Spacer(Modifier.height(16.dp))
 
-        // Album Art besar
-        SongThumbnail(
-            song = song,
-            modifier = Modifier
-                .fillMaxWidth(0.9f)
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(24.dp))
-        )
+        // ─── Album Art: HorizontalPager dengan peek card prev/next ───
+        if (songs.isNotEmpty() && currentSongIndex >= 0) {
+            val safeIndex = currentSongIndex.coerceIn(0, songs.lastIndex)
+            val pagerState = rememberPagerState(initialPage = safeIndex) { songs.size }
+
+            // Flag agar LaunchedEffect scroll balik tidak memicu onSongSelected lagi
+            var programmaticScroll by remember { mutableStateOf(false) }
+
+            // Ketika lagu berubah dari luar (misal autoplay/next), gerakkan pager ke index baru
+            LaunchedEffect(currentSongIndex) {
+                val target = currentSongIndex.coerceIn(0, songs.lastIndex)
+                if (pagerState.currentPage != target) {
+                    programmaticScroll = true
+                    pagerState.animateScrollToPage(target)
+                    programmaticScroll = false
+                }
+            }
+
+            // Ketika user swipe pager dan settle di halaman baru, mainkan lagu tersebut
+            LaunchedEffect(pagerState) {
+                snapshotFlow { pagerState.settledPage }
+                    .distinctUntilChanged()
+                    .collect { settledPage ->
+                        if (!programmaticScroll && settledPage != currentSongIndex) {
+                            songs.getOrNull(settledPage)?.let { onSongSelected(it) }
+                        }
+                    }
+            }
+
+            HorizontalPager(
+                state = pagerState,
+                // contentPadding agar kartu prev/next "nonjol" di tepi layar
+                contentPadding = PaddingValues(horizontal = 48.dp),
+                pageSpacing = 12.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 0.dp)
+            ) { page ->
+                val pageSong = songs.getOrNull(page)
+                // Hitung offset animasi scale & alpha untuk efek depth
+                val rawOffset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+                val absOffset = abs(rawOffset).coerceIn(0f, 1f)
+
+                Box(
+                    modifier = Modifier
+                        .aspectRatio(1f)
+                        .graphicsLayer {
+                            val scale = lerp(0.82f, 1f, 1f - absOffset)
+                            scaleX = scale
+                            scaleY = scale
+                            alpha = lerp(0.45f, 1f, 1f - absOffset)
+                        }
+                        .clip(RoundedCornerShape(20.dp))
+                ) {
+                    SongThumbnail(
+                        song = pageSong,
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    // Peek overlay khusus untuk kartu prev / next yang nonjol di tepi
+                    val isPrev = page == currentSongIndex - 1
+                    val isNext = page == currentSongIndex + 1
+                    if (isPrev || isNext) {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.50f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(horizontal = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isPrev) Icons.Default.SkipPrevious
+                                                  else Icons.Default.SkipNext,
+                                    contentDescription = if (isPrev) "Previous" else "Next",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = pageSong?.title ?: "",
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = 13.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Fallback ketika daftar lagu belum tersedia
+            SongThumbnail(
+                song = song,
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(24.dp))
+            )
+        }
 
         Spacer(Modifier.height(24.dp))
 
@@ -207,7 +313,7 @@ fun FullPlayerContent(
             }
 
             IconButton(onClick = { showVolumeSlider = !showVolumeSlider }) {
-                Icon(Icons.Default.VolumeUp, "Volume", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.AutoMirrored.Filled.VolumeUp, "Volume", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             Box {
