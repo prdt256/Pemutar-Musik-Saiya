@@ -2,6 +2,9 @@
 
 Aplikasi Pemutar Musik sederhana namun bertenaga untuk Android, dibangun menggunakan **Jetpack Compose** dengan arsitektur modern dan performa yang sangat dioptimalkan.
 
+## 📥 Download Aplikasi (Rilis Terbaru)
+Kamu bisa langsung mengunduh file APK siap pakai (`PemutarMusik-v1.0.apk`) di halaman **[GitHub Releases](https://github.com/prdt256/Pemutar-Musik-Saiya/releases)**.
+
 ## 🚀 Fitur Utama
 *   **Performa Super Ringan:** Pemuatan lagu berjalan asinkron di latar belakang (*Background thread*) menggunakan Kotlin Coroutines (`Dispatchers.IO`), bebas hambatan dan instan saat dibuka.
 *   **Bilah Mini Player Presisi:** Mini Player dirancang khusus agar selalu berada tepat di atas *Navigation Bar* (tidak bertumpuk) dengan animasi transisi yang mulus.
