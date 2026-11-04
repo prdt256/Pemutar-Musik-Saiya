@@ -26,11 +26,16 @@ import kotlinx.coroutines.withContext
 
 // Cache khusus biar gambar yang udah di-load gak usah mikir lagi pas di-scroll
 object ThumbnailCache {
-    val cache = LruCache<Long, Bitmap>(100)
+    // Dibatasi berdasarkan ukuran BYTE (1/8 heap), bukan jumlah item
+    val cache = object : LruCache<String, Bitmap>(
+        (Runtime.getRuntime().maxMemory() / 8).toInt().coerceAtLeast(4 * 1024 * 1024)
+    ) {
+        override fun sizeOf(key: String, value: Bitmap) = value.byteCount
+    }
 }
 
 @Composable
-fun SongThumbnail(song: MediaSong?, modifier: Modifier = Modifier) {
+fun SongThumbnail(song: MediaSong?, modifier: Modifier = Modifier, sizePx: Int = 150) {
     if (song == null) {
         Box(modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
             Icon(Icons.Default.MusicNote, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -39,16 +44,17 @@ fun SongThumbnail(song: MediaSong?, modifier: Modifier = Modifier) {
     }
 
     val context = LocalContext.current
-    var bitmap by remember(song.id) { mutableStateOf(ThumbnailCache.cache.get(song.id)) }
-    var loadAttempted by remember(song.id) { mutableStateOf(bitmap != null) }
+    val cacheKey = "${song.id}_$sizePx"
+    var bitmap by remember(cacheKey) { mutableStateOf(ThumbnailCache.cache.get(cacheKey)) }
+    var loadAttempted by remember(cacheKey) { mutableStateOf(bitmap != null) }
 
-    LaunchedEffect(song.id) {
+    LaunchedEffect(cacheKey) {
         // Ambil gambar LANGSUNG dari file lagu aslinya (akurat 100%)
         if (bitmap == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             withContext(Dispatchers.IO) {
                 try {
-                    val thumb = context.contentResolver.loadThumbnail(song.uri, Size(300, 300), null)
-                    ThumbnailCache.cache.put(song.id, thumb)
+                    val thumb = context.contentResolver.loadThumbnail(song.uri, Size(sizePx, sizePx), null)
+                    ThumbnailCache.cache.put(cacheKey, thumb)
                     bitmap = thumb
                 } catch (e: Exception) {
                     // Kalo emang file lagunya gak ada gambar

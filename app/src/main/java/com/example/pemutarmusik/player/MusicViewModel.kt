@@ -13,8 +13,14 @@ import com.example.pemutarmusik.data.PrefsManager
 import com.example.pemutarmusik.data.RepeatMode
 import com.example.pemutarmusik.data.SortBy
 import com.example.pemutarmusik.data.SortOrder
+import com.example.pemutarmusik.SongCache
 import com.example.pemutarmusik.loadAllSongs
+import com.example.pemutarmusik.sortSongs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -32,6 +38,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     var currentPosition by mutableIntStateOf(0)
     var duration by mutableIntStateOf(0)
     var shuffleEnabled by mutableStateOf(false)
+        private set
     var repeatMode by mutableStateOf(RepeatMode.OFF)
     var searchQuery by mutableStateOf("")
 
@@ -52,60 +59,132 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     var stopAfterCurrent by mutableStateOf(false)
     private var timerJob: Job? = null
 
-    val filteredSongs: List<MediaSong>
-        get() {
-            var result = songs
-            if (excludedFolders.isNotEmpty()) {
-                result = result.filter { it.folderPath !in excludedFolders }
-            }
-            if (searchQuery.isNotBlank()) {
-                val q = searchQuery.lowercase()
-                result = result.filter {
-                    it.title.lowercase().contains(q) || it.artist.lowercase().contains(q)
-                }
-            }
-            return result
+    // Query yang benar-benar dipakai untuk filter (di-debounce supaya tidak filter tiap ketukan)
+    private var appliedQuery by mutableStateOf("")
+
+    // derivedStateOf: hanya dihitung ulang kalau songs / excludedFolders / appliedQuery berubah
+    val filteredSongs: List<MediaSong> by derivedStateOf {
+        var result = songs
+        if (excludedFolders.isNotEmpty()) {
+            val ex = excludedFolders.toHashSet()
+            result = result.filter { it.folderPath !in ex }
         }
+        if (appliedQuery.isNotBlank()) {
+            val q = appliedQuery.trim().lowercase()
+            result = result.filter { it.searchKey.contains(q) }
+        }
+        result
+    }
 
     // Auto playlists
-    val recentlyAdded: List<MediaSong>
-        get() {
-            val oneWeekAgo = System.currentTimeMillis() / 1000 - 7 * 24 * 3600
-            return songs.filter { it.dateAdded >= oneWeekAgo }
-                .sortedByDescending { it.dateAdded }
-        }
+    val recentlyAdded: List<MediaSong> by derivedStateOf {
+        val oneWeekAgo = System.currentTimeMillis() / 1000 - 7 * 24 * 3600
+        songs.filter { it.dateAdded >= oneWeekAgo }.sortedByDescending { it.dateAdded }
+    }
 
     private var mediaPlayer: MediaPlayer? = null
     private var songHistory = mutableStateListOf<MediaSong>()
 
-    val currentIndex: Int
-        get() = currentSong?.let { s -> filteredSongs.indexOfFirst { it.id == s.id } } ?: -1
+    // Di-cache: tidak lagi O(N) tiap recomposition (posisi lagu update tiap 250ms)
+    // Urutan acak yang konsisten (dipakai untuk next/prev/swipe saat shuffle aktif)
+    private var shuffleOrder by mutableStateOf<List<MediaSong>>(emptyList())
 
-    init {
-        // Load saved excluded folders
-        excludedFolders.addAll(prefs.getExcludedFolders())
-
-        viewModelScope.launch {
-            while (true) {
-                mediaPlayer?.let {
-                    if (it.isPlaying) {
-                        currentPosition = it.currentPosition
-                        duration = it.duration.coerceAtLeast(0)
-                    }
-                }
-                delay(250)
+    /** Urutan putar efektif: urutan daftar biasa, atau urutan acak kalau shuffle aktif. */
+    val playbackQueue: List<MediaSong> by derivedStateOf {
+        val base = filteredSongs
+        if (!shuffleEnabled) base
+        else {
+            val valid = base.associateBy { it.id }
+            val ordered = shuffleOrder.mapNotNull { valid[it.id] }
+            if (ordered.size == base.size) ordered
+            else {
+                val seen = ordered.map { it.id }.toHashSet()
+                ordered + base.filter { it.id !in seen }
             }
         }
     }
 
-    fun loadSongs(context: Context, sortBy: SortBy, sortOrder: SortOrder) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val loadedSongs = loadAllSongs(context.contentResolver, sortBy, sortOrder)
-            val folders = loadedSongs.map { it.folderPath }.distinct().sorted()
-            withContext(Dispatchers.Main) {
-                songs = loadedSongs
-                allFolders = folders
+    val currentIndex: Int by derivedStateOf {
+        currentSong?.let { s -> playbackQueue.indexOfFirst { it.id == s.id } } ?: -1
+    }
+
+    /** Acak ulang; [first] (kalau ada) ditaruh paling depan supaya jadi lagu yang sedang/akan diputar. */
+    private fun reshuffle(first: MediaSong?) {
+        val rest = filteredSongs.filter { it.id != first?.id }.shuffled()
+        shuffleOrder = if (first != null) listOf(first) + rest else rest
+    }
+
+    @OptIn(FlowPreview::class)
+    private fun startObservers() {
+        // Debounce pencarian
+        viewModelScope.launch {
+            snapshotFlow { searchQuery }.debounce(150).distinctUntilChanged()
+                .collect { appliedQuery = it }
+        }
+        // Polling posisi HANYA saat sedang memutar
+        viewModelScope.launch {
+            snapshotFlow { isPlaying }.distinctUntilChanged().collectLatest { playing ->
+                if (!playing) return@collectLatest
+                while (true) {
+                    mediaPlayer?.let {
+                        if (it.isPlaying) {
+                            currentPosition = it.currentPosition
+                            duration = it.duration.coerceAtLeast(0)
+                        }
+                    }
+                    delay(250)
+                }
             }
+        }
+    }
+
+    init {
+        // Load saved excluded folders
+        excludedFolders.addAll(prefs.getExcludedFolders())
+        startObservers()
+    }
+
+    // Data mentah (belum disort) + kriteria sort aktif
+    private var rawSongs: List<MediaSong> = emptyList()
+    private var curSortBy = SortBy.TITLE
+    private var curSortOrder = SortOrder.ASC
+    private var loadJob: Job? = null
+    private var sortJob: Job? = null
+
+    private suspend fun publish(raw: List<MediaSong>) {
+        val sorted = withContext(Dispatchers.Default) { sortSongs(raw, curSortBy, curSortOrder) }
+        val folders = withContext(Dispatchers.Default) { raw.map { it.folderPath }.distinct().sorted() }
+        songs = sorted
+        allFolders = folders
+    }
+
+    /** Ganti kriteria sort: cukup sort ulang di memori, TANPA query MediaStore lagi. */
+    fun setSort(sortBy: SortBy, sortOrder: SortOrder) {
+        curSortBy = sortBy
+        curSortOrder = sortOrder
+        if (rawSongs.isEmpty()) return
+        sortJob?.cancel()
+        sortJob = viewModelScope.launch {
+            songs = withContext(Dispatchers.Default) { sortSongs(rawSongs, sortBy, sortOrder) }
+        }
+    }
+
+    /** Tampilkan cache seketika, lalu refresh dari MediaStore di background. */
+    fun loadSongs(context: Context) {
+        val app = context.applicationContext
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            if (rawSongs.isEmpty()) {
+                val cached = withContext(Dispatchers.IO) { SongCache.load(app) }
+                if (cached.isNotEmpty()) { rawSongs = cached; publish(cached) }
+            }
+            val fresh = withContext(Dispatchers.IO) { loadAllSongs(app.contentResolver) }
+            if (fresh.map { it.id } != rawSongs.map { it.id } ||
+                fresh.map { it.title } != rawSongs.map { it.title }) {
+                rawSongs = fresh
+                publish(fresh)
+            }
+            withContext(Dispatchers.IO) { SongCache.save(app, fresh) }
         }
     }
 
@@ -116,6 +195,20 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun isFolderEnabled(folderPath: String) = folderPath !in excludedFolders
+
+    /** Dipilih user dari daftar: kalau shuffle aktif, acak ulang dengan lagu ini di depan. */
+    fun playFromList(context: Context, song: MediaSong) {
+        if (shuffleEnabled) reshuffle(song)
+        playSong(context, song)
+    }
+
+    /** Tombol "Acak" di daftar: aktifkan shuffle dan mulai dari lagu acak. */
+    fun playShuffled(context: Context) {
+        val pick = filteredSongs.randomOrNull() ?: return
+        shuffleEnabled = true
+        reshuffle(pick)
+        playSong(context, pick)
+    }
 
     fun playSong(context: Context, song: MediaSong) {
         currentSong?.let { songHistory.add(it) }
@@ -154,22 +247,23 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun getNextSong(): MediaSong? {
-        val list = filteredSongs
+        val list = playbackQueue
         if (list.isEmpty()) return null
-        return if (shuffleEnabled) {
-            list.filter { it.id != currentSong?.id }.randomOrNull() ?: list.randomOrNull()
-        } else {
-            val idx = currentIndex
-            if (idx < 0) list.firstOrNull()
-            else if (idx < list.size - 1) list[idx + 1]
-            else if (repeatMode == RepeatMode.ALL) list.firstOrNull()
-            else null
+        val idx = currentIndex
+        return when {
+            idx < 0 -> list.first()
+            idx < list.size - 1 -> list[idx + 1]
+            repeatMode == RepeatMode.ALL -> {
+                if (shuffleEnabled) { reshuffle(null); playbackQueue.firstOrNull() }
+                else list.first()
+            }
+            else -> null
         }
     }
 
     private fun getPreviousSong(): MediaSong? {
         if (songHistory.isNotEmpty()) return songHistory.removeAt(songHistory.size - 1)
-        val list = filteredSongs
+        val list = playbackQueue
         val idx = currentIndex
         return if (idx > 0) list[idx - 1]
         else if (repeatMode == RepeatMode.ALL) list.lastOrNull()
@@ -189,7 +283,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playPrevious(context: Context) {
-        if (currentPosition > 3000) { seekTo(0); return }
         getPreviousSong()?.let { startPlayback(context, it) }
     }
 
@@ -198,7 +291,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         currentPosition = position
     }
 
-    fun toggleShuffle() { shuffleEnabled = !shuffleEnabled }
+    fun toggleShuffle() {
+        if (!shuffleEnabled) reshuffle(currentSong)
+        shuffleEnabled = !shuffleEnabled
+    }
 
     fun toggleRepeat() {
         repeatMode = when (repeatMode) {

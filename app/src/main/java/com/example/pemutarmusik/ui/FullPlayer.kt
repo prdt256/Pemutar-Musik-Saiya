@@ -110,27 +110,38 @@ fun FullPlayerContent(
             val safeIndex = currentSongIndex.coerceIn(0, songs.lastIndex)
             val pagerState = rememberPagerState(initialPage = safeIndex) { songs.size }
 
-            // Flag agar LaunchedEffect scroll balik tidak memicu onSongSelected lagi
+            // Selalu pakai nilai TERBARU di dalam coroutine (hindari closure basi yang bikin loop ganti lagu)
+            val latestSongs by rememberUpdatedState(songs)
+            val latestIndex by rememberUpdatedState(currentSongIndex)
+
+            // Flag agar scroll programatik tidak memicu onSongSelected lagi
             var programmaticScroll by remember { mutableStateOf(false) }
 
-            // Ketika lagu berubah dari luar (misal autoplay/next), gerakkan pager ke index baru
-            LaunchedEffect(currentSongIndex) {
+            // Ketika lagu berubah dari luar (next/prev/autoplay/shuffle), gerakkan pager ke index baru
+            LaunchedEffect(currentSongIndex, songs) {
                 val target = currentSongIndex.coerceIn(0, songs.lastIndex)
                 if (pagerState.currentPage != target) {
                     programmaticScroll = true
-                    pagerState.animateScrollToPage(target)
-                    programmaticScroll = false
+                    try {
+                        if (kotlin.math.abs(pagerState.currentPage - target) > 3) pagerState.scrollToPage(target)
+                        else pagerState.animateScrollToPage(target)
+                    } finally {
+                        programmaticScroll = false
+                    }
                 }
             }
 
-            // Ketika user swipe pager dan settle di halaman baru, mainkan lagu tersebut
+            // Hanya saat USER swipe dan settle di halaman baru -> mainkan lagu itu.
+            // Idempotent: tidak melakukan apa-apa kalau lagu di halaman itu sudah lagu yang diputar.
             LaunchedEffect(pagerState) {
                 snapshotFlow { pagerState.settledPage }
                     .distinctUntilChanged()
                     .collect { settledPage ->
-                        if (!programmaticScroll && settledPage != currentSongIndex) {
-                            songs.getOrNull(settledPage)?.let { onSongSelected(it) }
-                        }
+                        if (programmaticScroll || pagerState.isScrollInProgress) return@collect
+                        val list = latestSongs
+                        val settledSong = list.getOrNull(settledPage) ?: return@collect
+                        val playingId = list.getOrNull(latestIndex)?.id
+                        if (settledSong.id != playingId) onSongSelected(settledSong)
                     }
             }
 
@@ -161,7 +172,8 @@ fun FullPlayerContent(
                 ) {
                     SongThumbnail(
                         song = pageSong,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        sizePx = 600
                     )
 
                     // Peek overlay khusus untuk kartu prev / next yang nonjol di tepi
@@ -207,7 +219,8 @@ fun FullPlayerContent(
                 modifier = Modifier
                     .fillMaxWidth(0.9f)
                     .aspectRatio(1f)
-                    .clip(RoundedCornerShape(24.dp))
+                    .clip(RoundedCornerShape(24.dp)),
+                sizePx = 600
             )
         }
 

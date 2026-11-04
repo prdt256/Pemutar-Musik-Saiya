@@ -1,6 +1,7 @@
 package com.example.pemutarmusik.data
 
 import android.net.Uri
+import com.example.pemutarmusik.cleanForSort
 import java.util.concurrent.TimeUnit
 
 data class MediaSong(
@@ -14,6 +15,11 @@ data class MediaSong(
     val folderPath: String = "",
     val dateAdded: Long = 0L
 ) {
+    // Dihitung SEKALI saat objek dibuat (di thread IO), bukan tiap perbandingan sort / filter
+    val sortTitle: String = cleanForSort(title)
+    val sortArtist: String = cleanForSort(artist)
+    val searchKey: String = "${title.lowercase()}\u0000${artist.lowercase()}"
+
     val durationText: String
         get() {
             val hours = TimeUnit.MILLISECONDS.toHours(durationMs)

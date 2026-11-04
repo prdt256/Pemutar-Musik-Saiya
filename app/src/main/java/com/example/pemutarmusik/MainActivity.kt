@@ -66,9 +66,10 @@ private fun MusicApp(vm: MusicViewModel = viewModel()) {
         ActivityResultContracts.RequestPermission()
     ) { granted -> hasPermission = granted }
 
-    LaunchedEffect(hasPermission, sortBy, sortOrder) {
-        if (hasPermission) vm.loadSongs(context, sortBy, sortOrder)
+    LaunchedEffect(hasPermission) {
+        if (hasPermission) vm.loadSongs(context)
     }
+    LaunchedEffect(sortBy, sortOrder) { vm.setSort(sortBy, sortOrder) }
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
 
@@ -210,14 +211,11 @@ private fun MusicApp(vm: MusicViewModel = viewModel()) {
                                             vm.filteredSongs.firstOrNull()
                                                 ?.let { vm.playSong(context, it) }
                                         },
-                                        onShuffle = {
-                                            vm.filteredSongs.randomOrNull()
-                                                ?.let { vm.playSong(context, it) }
-                                            vm.shuffleEnabled = true
-                                        }
+                                        shuffleActive = vm.shuffleEnabled,
+                                        onShuffle = { vm.playShuffled(context) }
                                     )
                                     SongList(vm.filteredSongs, vm.currentSong) {
-                                        vm.playSong(context, it)
+                                        vm.playFromList(context, it)
                                     }
                                 }
                                 1 -> FolderScreen(
@@ -225,7 +223,7 @@ private fun MusicApp(vm: MusicViewModel = viewModel()) {
                                     { vm.isFolderEnabled(it) }, { vm.toggleFolder(it) }
                                 )
                             }
-                            1 -> PlaylistScreen(vm.recentlyAdded) { vm.playSong(context, it) }
+                            1 -> PlaylistScreen(vm.recentlyAdded) { vm.playFromList(context, it) }
                         }
                     }
                 }
@@ -254,7 +252,7 @@ private fun MusicApp(vm: MusicViewModel = viewModel()) {
                 timerActive = vm.timerActive,
                 timerRemainingMs = vm.timerRemainingMs,
                 stopAfterCurrent = vm.stopAfterCurrent,
-                songs = vm.filteredSongs,
+                songs = vm.playbackQueue,
                 currentSongIndex = vm.currentIndex,
                 onSongSelected = { vm.playSong(context, it) },
                 onClose = { showFullPlayer = false },

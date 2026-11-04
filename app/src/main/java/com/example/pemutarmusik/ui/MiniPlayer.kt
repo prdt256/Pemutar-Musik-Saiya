@@ -1,6 +1,6 @@
 package com.example.pemutarmusik.ui
 
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,24 +37,34 @@ fun MiniPlayer(
             .pointerInput("tap") {
                 detectTapGestures(onTap = { onOpenFullPlayer() })
             }
-            // Swipe Kiri/Kanan untuk ganti lagu; swipe vertikal dibiarkan pass-through
-            // ke BottomSheetScaffold (jadi dia yang handle animasi expand/collapse)
-            .pointerInput("horizontal_drag") {
+            // Swipe: kiri/kanan = ganti lagu, atas = buka Full Player, bawah = tutup mini player
+            .pointerInput("drag") {
                 var dragX = 0f
-                detectHorizontalDragGestures(
-                    onDragStart = { dragX = 0f },
-                    onHorizontalDrag = { change, dragAmount ->
+                var dragY = 0f
+                val vThreshold = 40.dp.toPx()
+                val hThreshold = 60f
+                detectDragGestures(
+                    onDragStart = { dragX = 0f; dragY = 0f },
+                    onDrag = { change, amount ->
                         change.consume()
-                        dragX += dragAmount
+                        dragX += amount.x
+                        dragY += amount.y
                     },
                     onDragEnd = {
-                        when {
-                            dragX < -60f -> onNext()
-                            dragX > 60f  -> onPrev()
+                        if (kotlin.math.abs(dragY) > kotlin.math.abs(dragX)) {
+                            when {
+                                dragY < -vThreshold -> onOpenFullPlayer()
+                                dragY > vThreshold -> onClose()
+                            }
+                        } else {
+                            when {
+                                dragX < -hThreshold -> onNext()
+                                dragX > hThreshold -> onPrev()
+                            }
                         }
-                        dragX = 0f
+                        dragX = 0f; dragY = 0f
                     },
-                    onDragCancel = { dragX = 0f }
+                    onDragCancel = { dragX = 0f; dragY = 0f }
                 )
             },
         color = MaterialTheme.colorScheme.surfaceVariant,

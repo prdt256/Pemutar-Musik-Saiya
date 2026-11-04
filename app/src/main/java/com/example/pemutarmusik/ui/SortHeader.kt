@@ -25,7 +25,8 @@ fun SortHeader(
     onChangeSortBy: (SortBy) -> Unit,
     onToggleOrder: () -> Unit,
     onPlayAll: () -> Unit,
-    onShuffle: () -> Unit
+    onShuffle: () -> Unit,
+    shuffleActive: Boolean = false
 ) {
     var showSortMenu by remember { mutableStateOf(false) }
 
@@ -162,8 +163,12 @@ fun SortHeader(
                     .weight(1f)
                     .height(44.dp),
                 shape = RoundedCornerShape(22.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = if (shuffleActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    else androidx.compose.ui.graphics.Color.Transparent
+                ),
                 border = androidx.compose.foundation.BorderStroke(
-                    1.dp, MaterialTheme.colorScheme.primary
+                    if (shuffleActive) 2.dp else 1.dp, MaterialTheme.colorScheme.primary
                 )
             ) {
                 Icon(Icons.Default.Shuffle, contentDescription = null,
