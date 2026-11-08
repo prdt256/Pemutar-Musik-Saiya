@@ -1,6 +1,11 @@
 package com.example.pemutarmusik
 
 import android.Manifest
+import android.app.Activity
+import android.app.RecoverableSecurityException
+import android.provider.MediaStore
+import androidx.activity.result.IntentSenderRequest
+import com.example.pemutarmusik.data.MediaSong
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -57,6 +62,72 @@ private fun MusicApp(vm: MusicViewModel = viewModel()) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var libraryTab by remember { mutableIntStateOf(0) }
     var showSearch by remember { mutableStateOf(false) }
+    var showQueue by remember { mutableStateOf(false) }
+
+    // ── Hapus lagu: konfirmasi -> izin sistem -> hapus file ──
+    var pendingDelete by remember { mutableStateOf<MediaSong?>(null) }
+    var deleting by remember { mutableStateOf<MediaSong?>(null) }
+
+    fun deleteDirect(song: MediaSong) {
+        try {
+            if (context.contentResolver.delete(song.uri, null, null) > 0) vm.onSongDeleted(song)
+            else vm.toast("Gagal menghapus lagu")
+        } catch (e: SecurityException) {
+            vm.toast("Tidak punya izin menghapus lagu ini")
+        } catch (e: Exception) {
+            vm.toast("Gagal menghapus lagu")
+        }
+    }
+
+    val deleteLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val song = deleting
+        deleting = null
+        if (song != null) {
+            if (result.resultCode == Activity.RESULT_OK) {
+                // Android 11+: sistem sudah menghapus file. Android 10: izin baru diberikan, hapus sekarang.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) vm.onSongDeleted(song)
+                else deleteDirect(song)
+            } else vm.toast("Penghapusan dibatalkan")
+        }
+    }
+
+    fun requestDelete(song: MediaSong) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val pi = MediaStore.createDeleteRequest(context.contentResolver, listOf(song.uri))
+                deleting = song
+                deleteLauncher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+            } else {
+                try {
+                    if (context.contentResolver.delete(song.uri, null, null) > 0) vm.onSongDeleted(song)
+                    else vm.toast("Gagal menghapus lagu")
+                } catch (e: SecurityException) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && e is RecoverableSecurityException) {
+                        deleting = song
+                        deleteLauncher.launch(
+                            IntentSenderRequest.Builder(e.userAction.actionIntent.intentSender).build()
+                        )
+                    } else vm.toast("Tidak punya izin menghapus lagu ini")
+                }
+            }
+        } catch (e: Exception) {
+            deleting = null
+            vm.toast("Gagal menghapus lagu")
+        }
+    }
+
+    val menuActions = remember(vm) {
+        SongMenuActions(
+            isFavorite = { vm.isFavorite(it) },
+            isQueued = { vm.isQueued(it) },
+            onPlayNext = { vm.queueNext(it) },
+            onRemoveNext = { vm.removeFromUpNext(it) },
+            onToggleFavorite = { vm.toggleFavorite(it) },
+            onDelete = { pendingDelete = it }
+        )
+    }
 
     val songCountPerFolder = remember(vm.songs) {
         vm.songs.groupBy { it.folderPath }.mapValues { it.value.size }
@@ -214,7 +285,7 @@ private fun MusicApp(vm: MusicViewModel = viewModel()) {
                                         shuffleActive = vm.shuffleEnabled,
                                         onShuffle = { vm.playShuffled(context) }
                                     )
-                                    SongList(vm.filteredSongs, vm.currentSong) {
+                                    SongList(vm.filteredSongs, vm.currentSong, menuActions) {
                                         vm.playFromList(context, it)
                                     }
                                 }
@@ -223,13 +294,50 @@ private fun MusicApp(vm: MusicViewModel = viewModel()) {
                                     { vm.isFolderEnabled(it) }, { vm.toggleFolder(it) }
                                 )
                             }
-                            1 -> PlaylistScreen(vm.recentlyAdded) { vm.playFromList(context, it) }
+                            1 -> PlaylistScreen(
+                                recentlyAdded = vm.recentlyAdded,
+                                history = vm.historySongs,
+                                favorites = vm.favoriteSongs,
+                                currentSong = vm.currentSong,
+                                actions = menuActions,
+                                onClearHistory = { vm.clearHistory() },
+                                onPlaySong = { vm.playFromList(context, it) }
+                            )
                         }
                     }
                 }
             }
         }
     )
+
+    // Dialog konfirmasi hapus lagu
+    pendingDelete?.let { song ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Hapus lagu?") },
+            text = { Text("\"${song.title}\" akan dihapus permanen dari perangkat.") },
+            confirmButton = {
+                TextButton(onClick = { pendingDelete = null; requestDelete(song) }) {
+                    Text("Hapus", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Batal") } }
+        )
+    }
+
+    // Antrean putar (slide dari bawah)
+    if (showQueue && vm.currentSong != null) {
+        QueueSheet(
+            current = vm.currentSong,
+            upNext = vm.upNext,
+            upcoming = vm.upcoming,
+            shuffle = vm.shuffleEnabled,
+            onPlay = { vm.playSong(context, it) },
+            onRemoveFromUpNext = { vm.removeFromUpNext(it) },
+            onClearUpNext = { vm.clearUpNext() },
+            onDismiss = { showQueue = false }
+        )
+    }
 
     // FullPlayer sebagai ModalBottomSheet
     if (showFullPlayer && vm.currentSong != null) {
@@ -255,6 +363,8 @@ private fun MusicApp(vm: MusicViewModel = viewModel()) {
                 songs = vm.playbackQueue,
                 currentSongIndex = vm.currentIndex,
                 onSongSelected = { vm.playSong(context, it) },
+                menuActions = menuActions,
+                onOpenQueue = { showQueue = true },
                 onClose = { showFullPlayer = false },
                 onPlayPause = { vm.togglePlay() },
                 onNext = { vm.playNext(context) },

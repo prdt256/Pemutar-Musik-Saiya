@@ -22,6 +22,7 @@ import com.example.pemutarmusik.data.MediaSong
 fun SongList(
     songs: List<MediaSong>,
     currentSong: MediaSong? = null,
+    actions: SongMenuActions,
     onClick: (MediaSong) -> Unit
 ) {
     LazyColumn(
@@ -29,13 +30,13 @@ fun SongList(
         contentPadding = PaddingValues(bottom = 160.dp)
     ) {
         items(songs, key = { it.id }) { song ->
-            SongItem(song, song.id == currentSong?.id) { onClick(song) }
+            SongItem(song, song.id == currentSong?.id, actions) { onClick(song) }
         }
     }
 }
 
 @Composable
-private fun SongItem(song: MediaSong, isPlaying: Boolean, onClick: () -> Unit) {
+fun SongItem(song: MediaSong, isPlaying: Boolean, actions: SongMenuActions, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -73,12 +74,6 @@ private fun SongItem(song: MediaSong, isPlaying: Boolean, onClick: () -> Unit) {
             )
         }
 
-        IconButton(onClick = { }, modifier = Modifier.size(32.dp)) {
-            Icon(
-                Icons.Default.MoreVert, "Menu",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp)
-            )
-        }
+        SongMenuButton(song = song, actions = actions)
     }
 }

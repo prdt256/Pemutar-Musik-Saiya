@@ -8,6 +8,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -61,7 +62,9 @@ fun FullPlayerContent(
     onSetVolume: (Float) -> Unit,
     onStartTimer: (Int) -> Unit,
     onStopAfterCurrent: () -> Unit,
-    onCancelTimer: () -> Unit
+    onCancelTimer: () -> Unit,
+    menuActions: SongMenuActions? = null,
+    onOpenQueue: () -> Unit = {}
 ) {
     var showSpeedMenu by remember { mutableStateOf(false) }
     var showTimerMenu by remember { mutableStateOf(false) }
@@ -98,8 +101,14 @@ fun FullPlayerContent(
             Text("  |  ", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
             Text("Lirik", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = {}) {
-                Icon(Icons.Default.MoreVert, "Menu", tint = MaterialTheme.colorScheme.onSurface)
+            if (song != null && menuActions != null) {
+                SongMenuButton(
+                    song = song, actions = menuActions,
+                    buttonSize = 48.dp, iconSize = 24.dp,
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            } else {
+                Spacer(Modifier.size(48.dp))
             }
         }
 
@@ -347,6 +356,11 @@ fun FullPlayerContent(
                         )
                     }
                 }
+            }
+
+            IconButton(onClick = onOpenQueue) {
+                Icon(Icons.AutoMirrored.Filled.QueueMusic, "Antrean putar",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 
